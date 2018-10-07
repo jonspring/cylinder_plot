@@ -139,6 +139,8 @@ add_cyclic_data <- function(df, cycle_length = 364) {
   
   days_length <- (max(df$dates) - min(df$dates)) / lubridate::ddays(1)
   
+  df <- df %>% padr::pad()
+  
   df_longer <- map_df(seq_len(days_length), ~df, .id = "id") %>%
     mutate(id = as.integer(id),
            cur_date = min(df$dates) + id -1) %>%
@@ -176,33 +178,31 @@ animate(b, nframes = 300, fps = 20, width = 300, height = 150) #, renderer = av_
 ```{r}
 att_longer <- add_cyclic_data(gall_att) %>%
   filter(dates    >= ymd(20160515), 
-         dates    <= ymd(20170802),
-         cur_date <= ymd(20170802))
+         dates    <= ymd(20170202),
+         cur_date <= ymd(20170202))
 
-b <- ggplot(att_longer, aes(x_pos, `Gallery Attendance`, alpha = -distance, 
+b <- ggplot(att_longer %>% filter(!is.na(`Gallery Attendance`)), 
+            aes(x_pos, paid, alpha = -distance, 
                             color = days_ago)) +
-  geom_path(aes(size = -days_ago)) +
-  # geom_vline(data = df_longer %>% filter(dates > max(dates) - cycle_length),
-  #            aes(xintercept = x_pos), color = "gray50", alpha = 0.1) +
-  
-  geom_vline(data = att_longer %>% filter(month(dates) == 7, day(dates) == 1),
+  geom_vline(data = att_longer %>% filter(month(dates) == 7, day(dates) == 1, days_ago < 364),
              aes(xintercept = x_pos, alpha = -distance), color = "gray90", size = 0.4) +
+  geom_segment(data = att_longer %>% filter(day(dates) == 1, month(dates) != 7, 
+                                            days_ago < 85),
+             aes(xend = x_pos, y = 0, yend = 1000, alpha = -distance), 
+             color = "gray40", size = 0.8) +
+  # For some reason the month labels seemed to be off by one...
+  geom_text(data = att_longer %>% filter(day(dates) == 1, days_ago < 70),
+             aes(y = 0, label = month(dates + 25, label = T, abbr = T)), 
+            size = 4, color = "gray60", hjust = -0.2, vjust = -0.2) +
   
-  geom_segment(data = att_longer %>% filter(day(dates) == 1, distance < -.4, x_pos < 0.5),
-             aes(xend = x_pos, y = 0, yend = 500, alpha = -distance), 
-             color = "gray90", size = 0.8) +
-  
-  geom_text(data = att_longer %>% filter(day(dates) == 1, distance < -.4, x_pos < 0.5),
-             aes(y = 0, label = month(dates, label = T, abbr = T)), 
-            size = 5, color = "red", hjust = 1.2) +
-  
+  geom_path(aes(size = -days_ago)) +
   scale_size(range = c(0.1,1)) +
   scale_color_viridis_c(direction = -1, option = "A") +
   transition_manual(id) + 
   theme_void() + theme(plot.background = element_rect(fill="black")) +
   guides(size = "none", alpha = "none", color = "none")
 
-animate(b, nframes = 100, fps = 10, width = 300, height = 150) #, renderer = av_renderer())
+animate(b, nframes = 10, fps = 1, width = 300, height = 150) #, renderer = av_renderer())
 
 att_longer %>% filter(month(dates) %in% c(1, 4, 7, 10), day(dates) == 1)
 
