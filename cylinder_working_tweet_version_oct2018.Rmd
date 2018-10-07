@@ -1,0 +1,210 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse); library(lubridate); library(gganimate)
+sample <- tibble(
+  dates = seq.Date(from = ymd(20160701), to   = ymd(20181001), by = "day"),
+  chg   = runif(length(dates), min = -10, max = 10),
+  cuml  = cumsum(chg)
+) %>% select(-chg)
+
+```
+
+Let's plot the series, along with a smoothed version. `geom_smooth` has a parameter called "span" that determines how much of the series should be averaged into each point.
+
+```{r}
+ggplot(sample, aes(dates, cuml)) + 
+  geom_line(color = "gray70") +
+  geom_smooth(span = .1, se=F, method = "loess")
+```
+
+I'd like to animate how much smoothing there is.
+* Possible to animate span parameter of geom_smooth directly? 
+* Alternatively, create new columns with smoothed data, gather, and transition those...
+
+```{r}
+# sample %>%
+#   mutate(smoothed = loess(cuml ~ dates), sample)
+# 
+# ggplot(aes(dates, cuml)) + 
+#   geom_line(color = "gray70") +
+#   geom_point() +
+#   # geom_smooth(span = .01, se=F, method = "loess") +
+#   # geom_smooth(span = .05, se=F, method = "loess") +
+#   # geom_smooth(span = .1, se=F, method = "loess") +
+#   # geom_smooth(span = .2, se=F, method = "loess") +
+#   # geom_smooth(span = .3, se=F, method = "loess") +
+#   # geom_smooth(span = .4, se=F, method = "loess") +
+#   transition_
+#   # transition_layers(layer_length = 1, transition_length = 1) 
+  
+
+```
+
+I'm curious what the series would look like if it appeared on the edge of a rotating cylinder, like a phonograph record or a seismograph. This will require a few translations:
+
+* x axis should be wrapped around, so that each period (could be one day, or one week, or one month, or one year) is shown as one cycle. I think the mapping would be a sin function, so that the earliest values are mapped to x = 0, increasing linearly at first, until one quarter of the period (PI/2 in radians?), represented at max x. 
+
+* y could be adjustable, using height * -cos(phase), to allow for flat head-on viewing when height = 0, or some height to look at the cylinder from a different height.
+
+```{r}
+options(scipen = 99)
+
+sample2 <- sample %>%  # select(dates) %>%
+  mutate(dates_dec   = decimal_date(dates),
+         dates_phase = (dates_dec %% 1),
+         dates_cycle_num = dates_dec - dates_phase,
+         dates_cyl   = -sin(2*pi * dates_phase/ max(dates_phase))
+         )
+  
+a <- sample2 %>% # ggplot(aes(dates, dates_cyl)) +
+  ggplot(aes(dates_cyl, cuml)) +
+  geom_point(size = 0.1) + 
+  geom_path(alpha = 0.3) +
+  transition_reveal(dates_cycle_num, dates_dec)
+
+animate(a, nframes = 20)
+
+```
+
+
+To make this look cooler, I'd rather have the whole cylinder rotate, leaving the current point visible. This seems possible if we prepare the data first, calculating each frame and shfting the visibility and phase according to frame.
+
+This worked well and I tweeted it out on 10/6/18.
+
+```{r}
+
+frame_count <- (max(sample$dates) - min(sample$dates)) / lubridate::ddays(1)
+
+sample3 <- map_df(seq_len(frame_count), ~sample, .id = "id") %>%
+  mutate(id = as.integer(id),
+         id_phase = (id %% 365) / 365) %>% arrange(dates) %>%
+
+  mutate(dates_dec   = decimal_date(dates),
+         dates_num   = dates_dec - min(dates_dec),
+         dates_prog  = dates_num / max(dates_num),
+         dates_phase = (dates_dec %% 1),
+         relative_phase = id_phase - dates_phase,
+         dates_cycle_num = dates_dec - dates_phase,
+         dates_cyl   = sin(2*pi * relative_phase/ max(relative_phase)),
+         nearness    = -cos(2*pi * relative_phase/max(relative_phase))
+         ) %>%
+  filter(dates_prog <= id / max(id)) %>%
+  group_by(id) %>%
+  mutate(recency = max(dates_dec) - dates_dec) %>% ungroup()
+
+temp <- sample3 %>% # ggplot(aes(dates, dates_cyl)) +
+  filter(id > max(id) - 200)
+
+b <- ggplot(temp, aes(dates_cyl, cuml, alpha = nearness, color = recency)) +
+  # geom_point() + 
+  # scale_alpha_continuous(range = c(0.0))
+  geom_path(aes(size = -recency)) +
+  geom_point(data = temp %>% group_by(id) %>% filter(dates == max(dates)),
+             size = 5, shape = 21, fill = NA, stroke = 1) +
+  scale_size(range = c(0,2)) +
+  transition_manual(id) + theme_void() +
+  guides(size = "none", alpha = "none", color = "none")
+
+animate(b, nframes = 20, fps = 20, width = 300, height = 150) #, renderer = av_renderer())
+
+```
+
+Getting closer. Something's a little buggy so lemme try rewriting another way
+
+
+```{r}
+library(tidyverse); library(lubridate); library(gganimate)
+sample <- tibble(
+  dates = seq.Date(from = ymd(20160701), to   = ymd(20181001), by = "day"),
+  chg   = runif(length(dates), min = -10, max = 10),
+  cuml  = cumsum(chg)
+) %>% select(-chg)
+
+
+gall_att <- readr::read_csv("~/Downloads/gallery_attendance (1).csv") %>%
+  mutate(dates = mdy(Date),
+         paid = `Gallery Attendance` * `Paid %`)
+
+
+```
+
+```{r Define Function add_cyclic_data} 
+add_cyclic_data <- function(df, cycle_length = 364) {
+  # df <- sample
+  # cycle_length <- 365
+  
+  days_length <- (max(df$dates) - min(df$dates)) / lubridate::ddays(1)
+  
+  df_longer <- map_df(seq_len(days_length), ~df, .id = "id") %>%
+    mutate(id = as.integer(id),
+           cur_date = min(df$dates) + id -1) %>%
+    filter(dates <= cur_date) %>%
+    mutate(days_ago  = (cur_date - dates) / ddays(1),
+           phase_dif = (days_ago %% cycle_length) / cycle_length,
+           x_pos     =  -sin(2*pi * phase_dif/max(phase_dif)),
+           distance  =  -cos(2*pi * phase_dif/max(phase_dif)))
+  return(df_longer)
+}
+```
+
+``` {r}
+df_longer <- add_cyclic_data(sample %>% filter(dates > max(dates) - 900))
+
+# cycle_length <- 365
+
+b <- ggplot(df_longer, aes(x_pos, cuml, alpha = -distance, color = dates)) +
+  geom_path(aes(size = -days_ago)) +
+  # geom_vline(data = df_longer %>% filter(dates > max(dates) - cycle_length),
+  #            aes(xintercept = x_pos), color = "gray50", alpha = 0.1) +
+  
+  geom_vline(data = df_longer %>% filter(month(dates) %in% c(1, 4, 7, 10), day(dates) == 1),
+             aes(xintercept = x_pos, alpha = -distance), color = "gray50", lty = "dashed") +
+  scale_size(range = c(0,2)) +
+  transition_manual(id) + theme_void() +
+  guides(size = "none", alpha = "none", color = "none")
+
+animate(b, nframes = 300, fps = 20, width = 300, height = 150) #, renderer = av_renderer())
+
+
+```
+
+
+```{r}
+att_longer <- add_cyclic_data(gall_att) %>%
+  filter(dates    >= ymd(20160515), 
+         dates    <= ymd(20170802),
+         cur_date <= ymd(20170802))
+
+b <- ggplot(att_longer, aes(x_pos, `Gallery Attendance`, alpha = -distance, 
+                            color = days_ago)) +
+  geom_path(aes(size = -days_ago)) +
+  # geom_vline(data = df_longer %>% filter(dates > max(dates) - cycle_length),
+  #            aes(xintercept = x_pos), color = "gray50", alpha = 0.1) +
+  
+  geom_vline(data = att_longer %>% filter(month(dates) == 7, day(dates) == 1),
+             aes(xintercept = x_pos, alpha = -distance), color = "gray90", size = 0.4) +
+  
+  geom_segment(data = att_longer %>% filter(day(dates) == 1, distance < -.4, x_pos < 0.5),
+             aes(xend = x_pos, y = 0, yend = 500, alpha = -distance), 
+             color = "gray90", size = 0.8) +
+  
+  geom_text(data = att_longer %>% filter(day(dates) == 1, distance < -.4, x_pos < 0.5),
+             aes(y = 0, label = month(dates, label = T, abbr = T)), 
+            size = 5, color = "red", hjust = 1.2) +
+  
+  scale_size(range = c(0.1,1)) +
+  scale_color_viridis_c(direction = -1, option = "A") +
+  transition_manual(id) + 
+  theme_void() + theme(plot.background = element_rect(fill="black")) +
+  guides(size = "none", alpha = "none", color = "none")
+
+animate(b, nframes = 100, fps = 10, width = 300, height = 150) #, renderer = av_renderer())
+
+att_longer %>% filter(month(dates) %in% c(1, 4, 7, 10), day(dates) == 1)
+
+```
+

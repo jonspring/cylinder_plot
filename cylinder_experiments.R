@@ -9,7 +9,7 @@ test <- tibble(
   value = cumsum(delta)
 )
 
-# Normal plot
+# Normal plto
 n <- ggplot(test, aes(decimal_date(date) - year(date), 
                  value, alpha = date,
                  color = year(date), group = year(date))) +
