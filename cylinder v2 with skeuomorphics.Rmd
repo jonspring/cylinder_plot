@@ -1,0 +1,87 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r skeuomporphic  version}
+
+library(tidyverse); library(lubridate); library(gganimate)
+
+# Fake data
+set.seed(4.2)
+sample <- tibble(
+  date = seq.Date(from = ymd(20160101), to   = ymd(20181001), by = "day"),
+  chg   = runif(length(date), min = -10, max = 10),
+  value  = cumsum(chg)
+) %>% select(-chg)
+
+
+frame_count <- (max(sample$date) - min(sample$date)) / lubridate::ddays(1)
+cycle_length <- 365
+
+# From https://stackoverflow.com/a/8753732/6851825
+# This copies the dataframe `frame_count` times, w/ one id number for each set
+sample3 <- map_df(seq_len(frame_count), ~sample, .id = "id") %>%
+  mutate(id = as.integer(id)) %>%
+  # view_date is the "camera" date. We'll only keep data up to the camera date.
+  mutate(view_date = min(sample$date) + id - 1) %>%
+  filter(date <= view_date) %>%
+  
+  mutate(days_ago  = (view_date - date) / ddays(1),
+         phase_dif = (days_ago %% cycle_length) / cycle_length,
+         x_pos     =  -sin(2*pi * phase_dif),
+         nearness  =  cos(2*pi * phase_dif),
+         group     = round(days_ago / cycle_length),
+         value     = value * (nearness + 1)/3) %>%
+  filter(nearness > 0)
+
+outlines <- data_frame(
+  x = seq(-1, 1, length.out = 30),
+  x_pos = sin(2*pi*x),
+  top = 75 * (1+cos(x_pos)), # * (cos(2*pi * x/2) + 1) / 3,
+  bottom = -75 * (1+cos(x_pos))
+)
+
+
+
+b <- ggplot(sample3) +
+  geom_path(data = outlines, aes(x_pos, top), color = "gray70") +
+  geom_point(data = outlines, aes(x_pos, top), color = "gray70") +
+  
+  geom_path(data = outlines, aes(x_pos, bottom), color = "gray70") +
+  
+  geom_path(aes(x_pos, value, alpha = nearness,
+                color = days_ago, size = -days_ago,
+                group = group)) +
+  geom_segment(data = sample3 %>% top_n(1, wt = -days_ago),
+               aes(x = x_pos, y= value, xend = 1.3, yend = 0),
+               color = "white", size = 2) +
+  
+  geom_segment(data = sample3 %>% top_n(1, wt = -days_ago),
+               aes(x = x_pos, y= value, xend = 1.3, yend = 0),
+               color = "wheat", size = 0.2) +
+  geom_segment(data = sample3 %>% top_n(1, wt = -days_ago),
+               aes(x = x_pos, y= value - 4, xend = 1.3 - 0.0001 * value, yend = -10),
+               color = "wheat", size = 0.3) +
+  geom_point(data = sample3 %>% top_n(1, wt = -days_ago),
+               aes(x = x_pos, y= value),
+               color = "gray50", size = 1.5) +
+  
+  scale_size(range = c(0,1)) +
+  transition_manual(id) + theme_void() +
+  guides(size = "none", alpha = "none", color = "none")
+
+# Change fps to 20+ for smoother motion
+animate(b, fps = 1, duration = 15, width = 300, height = 150)  
+
+
+
+```
+
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+
