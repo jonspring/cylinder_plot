@@ -174,10 +174,18 @@ sample <- tibble(
 ) %>% select(-chg)
 
 
-gall_att <- readr::read_csv("~/Downloads/gallery_attendance (1).csv") %>%
-  mutate(dates = mdy(Date),
-         paid = `Gallery Attendance` * `Paid %`)
 
+
+# gall_att <- readr::read_csv("~/Downloads/gallery_attendance (1).csv") %>%
+#   mutate(dates = mdy(Date),
+#          paid = `Gallery Attendance` * `Paid %`)
+
+
+source('~/R/r-orders/speedy_load.R')
+
+gall_att <- daily_totals %>%
+  select(dates = perf_dt,
+         paid = Paid)
 
 ```
 
@@ -225,22 +233,58 @@ animate(b, nframes = 300, fps = 20, width = 300, height = 150) #, renderer = av_
 ```
 
 
-```{r}
+```{r fig.width=10, height = 3}
 ###### Added later for smooth
 gall_att2 <- gall_att %>%
   mutate(day_num = (dates - min(dates))/ddays(1) + 1,
-         cuml_pd = cumsum(paid/100),
+         cuml_pd = cumsum(paid/1000),
          days_7row = day_num - lag(day_num, 6),
          cuml_7row = cuml_pd - lag(cuml_pd, 6),
-         avg     = cuml_7row / days_7row)
+         avg     = cuml_7row / days_7row) %>%
+    mutate(notes = case_when(dates == ymd(20160515)  ~  "Opening",
+                           dates == ymd(20160703)  ~  "7/4",
+                           dates == ymd(20160905)  ~  "Labor\nDay",
+                           dates == ymd(20161020)  ~  "Rain",
+                           dates == ymd(20161125)  ~  "Thanksgiving",
+                           dates == ymd(20161226)  ~  "Xmas",
+                           dates == ymd(20170218)  ~  "Spring\nbreak",
+                           dates == ymd(20170314)  ~  "<-MD",
+                           dates == ymd(20170528)  ~  "MD->",
+                           
+                           dates == ymd(20170624)  ~  "<-Munch",
+                           # dates == ymd(20170703)  ~  "7/4",
+                           dates == ymd(20170905)  ~  "Labor\nDay",
+                           dates == ymd(20171008)  ~  "Munch->",
+                           dates == ymd(20171125)  ~  "Thanksgiving",
+                           dates == ymd(20171226)  ~  "Xmas",
+                           dates == ymd(20180218)  ~  "Spring\nbreak",
+                           dates == ymd(20180519)  ~  "Magritte",
+                           
+                           dates == ymd(20180703)  ~  "7/4",
+                           dates == ymd(20180904)  ~  "Labor\nDay",
+                           
+                           TRUE  ~ ""))
+
+
+  ggplot(gall_att2, aes(dates, avg)) + geom_line() +
+    geom_text(aes(label = notes, y = 2.5), hjust = 0)
+
+```
+  
+  
+  
+```{r}
 
 
 # att_longer <- add_cyclic_data(gall_att) %>%
-att_longer <- add_cyclic_data(gall_att2) %>%
+att_longer <- add_cyclic_data(gall_att2, cycle_length = 364) %>%
   filter(dates    >= ymd(20160515),
+        paid   > 0,
          dates    <= ymd(20181002),
-         cur_date <= ymd(20181002)) %>%
-  filter(id > 10)
+         cur_date <= ymd(20181002)
+         ) %>%
+  filter(id > 10) %>%
+  mutate(avg = if_else(is.na(avg), lag(avg), avg))
 
 (max(att_longer$dates) - min(att_longer$dates)) / lubridate::ddays(1)
 
@@ -248,20 +292,24 @@ max(att_longer$id) - min(att_longer$id)
 seconds_per_mo = 1.5
 fps = 20
 
-b <- ggplot(att_longer %>% filter(!is.na(`Gallery Attendance`)), 
-            aes(x_pos, avg, alpha = -distance, color = days_ago)) +
+b <- ggplot(att_longer, # %>% filter(cur_date < ymd(20170101)), 
+            aes(x_pos, paid, alpha = -distance, color = days_ago)) +
   
-  geom_vline(data = att_longer %>% filter(month(dates) == 7, day(dates) == 1, days_ago < 364),
-             aes(xintercept = x_pos, alpha = -distance), color = "gray60", size = 0.4, lty = "dotted") +
+  # geom_vline(data = att_longer %>% filter(month(dates) == 7, day(dates) == 1, days_ago < 364),
+  #            aes(xintercept = x_pos, alpha = -distance), color = "gray60", size = 0.4, lty = "dotted") +
   
-  geom_segment(data = att_longer %>% filter(day(dates) == 1),
-             aes(y = 50, yend = 100, xend = x_pos)) +#, 
-             # color = "gray50", size = 0.5) +
+  geom_segment(data = att_longer %>% filter(day(dates) == 1, distance < -0.2, days_ago < 364),
+             aes(y = 0, yend = 3, xend = x_pos), color = "gray20", size = 0.5) +
   # For some reason the month labels seemed to be off by one...
   # Might have been time zone or something for day = 0
   geom_text(data = att_longer %>% filter(day(dates) == 15, days_ago < 364, distance < -0.2),
              aes(y = 0, label = month(dates, label = T, abbr = T), alpha = floor(-distance + 0.3)), 
-            size = 4, color = "gray60", hjust = 0.5, vjust = 0) +
+            size = 6, color = "gray60", hjust = 0.5, vjust = 0) +
+  
+  geom_text(data = att_longer %>% filter(distance < -0.25, days_ago < 330),
+            aes(y = 4000, label = str_wrap(notes, 13), alpha = floor(-distance + 0.3)),
+            size = 6, color = "gray60", hjust = 0.5, vjust = 0, family = "SFMOMA Text Offc") +
+  
   
   geom_path(aes(size = -days_ago)) +
   scale_size(range = c(0.1,1)) +
@@ -271,9 +319,9 @@ b <- ggplot(att_longer %>% filter(!is.na(`Gallery Attendance`)),
   theme_void() + theme(plot.background = element_rect(fill="black")) +
   guides(size = "none", alpha = "none", color = "none")
 
-animate(b, nframes = 870, duration = 40, width = 400, height = 250) #, renderer = av_renderer())
+animate(b, nframes = 870, duration = 60, width = 600, height = 400) #, renderer = av_renderer())
 
-  # animate(b, nframes = 100, fps = 20, width = 300, height = 150, renderer = ffmpeg_renderer(format = "mp4", ffmpeg = NULL, options = list(pix_fmt = "yuv420p")))
+    # animate(b, nframes = 100, fps = 20, width = 300, height = 150, renderer = ffmpeg_renderer(format = "mp4", ffmpeg = NULL, options = list(pix_fmt = "yuv420p")))
 
 ```
 
